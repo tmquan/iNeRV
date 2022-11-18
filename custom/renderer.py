@@ -231,7 +231,7 @@ class CustomInverseRenderer(ImplicitronModelBase):  # pyre-ignore: 13
     # image_feature_extractor: Optional[FeatureExtractorBase]
     image_feature_extractor_class_type: Optional[str] = "ResNetFeatureExtractor"
     image_feature_extractor = ResNetFeatureExtractor(
-        name = "resnet34", 
+        name = "resnet101", 
         add_masks = False,
         add_images = True,
         normalize_image = True,
@@ -308,7 +308,6 @@ class CustomInverseRenderer(ImplicitronModelBase):  # pyre-ignore: 13
         self._implicit_functions = self._construct_implicit_functions()
 
         self.log_loss_weights()
-        # self.image_feature_extractor.to(self._implicit_functions.device)
 
     def forward(
         self,

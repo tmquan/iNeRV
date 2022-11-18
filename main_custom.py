@@ -134,14 +134,6 @@ class CustomLightningModule(LightningModule):
         image3d = batch["image3d"]
         image2d = batch["image2d"]
 
-        # if stage=='train':
-        #     if (batch_idx % 2) == 1:
-        #         masked = image3d>0
-        #         noises = torch.rand_like(image3d) * masked.to(image3d.dtype)
-        #         alpha_ = torch.rand(self.batch_size, 1, 1, 1, 1, device=_device)
-        #         alpha_ = alpha_.expand_as(image3d)
-        #         image3d = alpha_ * image3d + (1 - alpha_) * noises
-
         # Construct the locked camera
         dist_locked = 4.0 * torch.ones(self.batch_size, device=_device)
         elev_locked = torch.ones(self.batch_size, device=_device) * 0
@@ -157,7 +149,6 @@ class CustomLightningModule(LightningModule):
         camera_random = FoVPerspectiveCameras(R=R_random, T=T_random, fov=45, aspect_ratio=1).to(_device)
 
         
-
         # CT pathway
         src_volume_ct = image3d
         src_opaque_ct = torch.ones_like(src_volume_ct)
@@ -172,15 +163,8 @@ class CustomLightningModule(LightningModule):
             opacity=src_opaque_ct, 
         )
         
-        # XR pathway
-        src_figure_xr_hidden = image2d
-        # rng = self.inv_renderer.forward(
-        #     image_rgb=None,
-        #     camera=camera_random, 
-        #     evaluation_mode=EvaluationMode.EVALUATION
-        # )
 
-        out_ct =  self.inv_renderer.forward(
+        out_ct_fwd =  self.inv_renderer.forward(
             image_rgb=torch.cat([
                 est_figure_ct_random.repeat(1,3,1,1), 
                 est_figure_ct_locked.repeat(1,3,1,1),
@@ -189,9 +173,24 @@ class CustomLightningModule(LightningModule):
                 camera_random, 
                 camera_locked,
             ]),
+            evaluation_mode = EvaluationMode.TRAINING if stage=="train" else EvaluationMode.EVALUATION
         )
 
-        out_xr =  self.inv_renderer.forward(
+        out_ct_inv =  self.inv_renderer.forward(
+            image_rgb=torch.cat([
+                est_figure_ct_locked.repeat(1,3,1,1),
+                est_figure_ct_random.repeat(1,3,1,1), 
+            ]),
+            camera=join_cameras_as_batch([
+                camera_locked,
+                camera_random, 
+            ]),
+            evaluation_mode = EvaluationMode.TRAINING if stage=="train" else EvaluationMode.EVALUATION
+        )
+
+        # XR pathway
+        src_figure_xr_hidden = image2d
+        out_xr_fwd =  self.inv_renderer.forward(
             image_rgb=torch.cat([
                 src_figure_xr_hidden.repeat(1,3,1,1), 
             ]),
@@ -202,37 +201,43 @@ class CustomLightningModule(LightningModule):
             evaluation_mode=EvaluationMode.EVALUATION
         )
 
-        # #TODO: Cycle consistent XR images
-        # #TODO: Add Orthogonal Camera
+        out_xr_inv =  self.inv_renderer.forward(
+            image_rgb=torch.cat([
+                src_figure_xr_hidden.repeat(1,3,1,1), 
+                out_xr_fwd["images_render"]
+            ]),
+            camera=join_cameras_as_batch([
+                camera_locked,
+                camera_random, 
+            ]),
+            evaluation_mode = EvaluationMode.TRAINING if stage=="train" else EvaluationMode.EVALUATION
+        )
+
+        #TODO: Add Orthogonal Camera
         im3d_loss = 0
-        im2d_loss = out_ct["loss_rgb_mse"] 
+        im2d_loss = out_ct_fwd["loss_rgb_mse"] \
+                  + out_ct_inv["loss_rgb_mse"] \
+                  + out_xr_inv["loss_rgb_mse"] 
         
         self.log(f'{stage}_im2d_loss', im2d_loss, on_step=(stage == 'train'), prog_bar=True, logger=True, sync_dist=True, batch_size=self.batch_size)
         self.log(f'{stage}_im3d_loss', im3d_loss, on_step=(stage == 'train'), prog_bar=True, logger=True, sync_dist=True, batch_size=self.batch_size)
 
         loss = im3d_loss + im2d_loss
-        info = {f'loss': loss}
-
-        if batch_idx == 0:
+        if batch_idx == 0 and stage!="train":
             viz2d = torch.cat([
                         torch.cat([est_figure_ct_locked, 
                                    est_figure_ct_random, 
-                                   out_ct["images_render"].mean(dim=1, keepdim=True), 
+                                   out_ct_fwd["images_render"].mean(dim=1, keepdim=True), 
+                                   out_ct_inv["images_render"].mean(dim=1, keepdim=True), 
                                    src_figure_xr_hidden, 
-                                   out_xr["images_render"].mean(dim=1, keepdim=True), 
+                                   out_xr_inv["images_render"].mean(dim=1, keepdim=True), 
                                    ], dim=-2).transpose(2, 3),
-                        # torch.cat([src_figure_xr_hidden, 
-                        #            out_xr_hidden["images_render"].mean(dim=1, keepdim=True), 
-                        #            out_ct_random["images_render"].mean(dim=1, keepdim=True), 
-                        #            out_ct_locked["images_render"].mean(dim=1, keepdim=True), 
-                        #         #    out_xr_random["images_render"].permute(0,3,1,2).mean(dim=1, keepdim=True), 
-                        #         #    out_xr_locked["images_render"].permute(0,3,1,2).mean(dim=1, keepdim=True), 
-                        #            ], dim=-2).transpose(2, 3)
                     ], dim=-2)
             grid = torchvision.utils.make_grid(viz2d, normalize=False, scale_each=False, nrow=1, padding=0)
             tensorboard = self.logger.experiment
             tensorboard.add_image(f'{stage}_samples', grid.clamp(0., 1.), self.current_epoch*self.batch_size + batch_idx)
 
+        info = {f'loss': loss}
         return info
 
     def training_step(self, batch, batch_idx):
@@ -240,7 +245,7 @@ class CustomLightningModule(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         return self._common_step(batch, batch_idx, optimizer_idx=0, stage='validation')
-
+        
     def test_step(self, batch, batch_idx):
         return self._common_step(batch, batch_idx, optimizer_idx=0, stage='test')
 
