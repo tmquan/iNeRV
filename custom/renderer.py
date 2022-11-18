@@ -308,7 +308,7 @@ class CustomInverseRenderer(ImplicitronModelBase):  # pyre-ignore: 13
         self._implicit_functions = self._construct_implicit_functions()
 
         self.log_loss_weights()
-        self.image_feature_extractor.to(torch.device("cuda:0"))
+        # self.image_feature_extractor.to(self._implicit_functions.device)
 
     def forward(
         self,
@@ -398,6 +398,7 @@ class CustomInverseRenderer(ImplicitronModelBase):  # pyre-ignore: 13
         custom_args = {}
 
         if self.image_feature_extractor is not None:
+            self.image_feature_extractor.to(image_rgb.device)
             # (2) Extract features for the image
             img_feats = self.image_feature_extractor(image_rgb, fg_probability)
         else:

@@ -32,9 +32,9 @@ from pytorch3d.renderer.cameras import (
     look_at_view_transform
 )
 
-# from pytorch3d.implicitron.models.generic_model import (
-#     GenericModel
-# )
+from pytorch3d.implicitron.models.renderer.base import (
+    EvaluationMode
+)
 
 from datamodule import UnpairedDataModule
 from dvr.renderer import DirectVolumeFrontToBackRenderer
@@ -174,48 +174,29 @@ class CustomLightningModule(LightningModule):
         
         # XR pathway
         src_figure_xr_hidden = image2d
+        # rng = self.inv_renderer.forward(
+        #     image_rgb=None,
+        #     camera=camera_random, 
+        #     evaluation_mode=EvaluationMode.EVALUATION
+        # )
 
-        out_ct_random = self.inv_renderer.forward(
+        out =  self.inv_renderer.forward(
             image_rgb=torch.cat([
-                est_figure_ct_random.repeat(1,3,1,1), #.permute(0,2,3,1), 
-                est_figure_ct_locked.repeat(1,3,1,1), #.permute(0,2,3,1),
+                est_figure_ct_random.repeat(1,3,1,1), 
+                est_figure_ct_locked.repeat(1,3,1,1),
+                src_figure_xr_hidden.repeat(1,3,1,1),
             ]),
             camera=join_cameras_as_batch([
                 camera_random, 
                 camera_locked,
-            ]),
-        )
-
-        out_ct_locked = self.inv_renderer.forward(
-            image_rgb=torch.cat([
-                est_figure_ct_locked.repeat(1,3,1,1), #.permute(0,2,3,1),
-                est_figure_ct_random.repeat(1,3,1,1), #.permute(0,2,3,1), 
-                
-            ]),
-            camera=join_cameras_as_batch([
                 camera_locked,
-                camera_random, 
-            ]),
-        )
-
-        out_xr_hidden = self.inv_renderer.forward(
-            image_rgb=torch.cat([
-                src_figure_xr_hidden.repeat(1,3,1,1), #.permute(0,2,3,1),
-                src_figure_xr_hidden.repeat(1,3,1,1), #.permute(0,2,3,1),
-                
-            ]),
-            camera=join_cameras_as_batch([
-                camera_locked,
-                camera_locked, 
             ]),
         )
 
         # #TODO: Cycle consistent XR images
         # #TODO: Add Orthogonal Camera
         im3d_loss = 0
-        im2d_loss = out_ct_random["loss_rgb_mse"] \
-                  + out_ct_locked["loss_rgb_mse"] \
-                  + out_xr_hidden["loss_rgb_mse"] 
+        im2d_loss = out["loss_rgb_mse"] 
         
         self.log(f'{stage}_im2d_loss', im2d_loss, on_step=(stage == 'train'), prog_bar=True, logger=True, sync_dist=True, batch_size=self.batch_size)
         self.log(f'{stage}_im3d_loss', im3d_loss, on_step=(stage == 'train'), prog_bar=True, logger=True, sync_dist=True, batch_size=self.batch_size)
@@ -225,18 +206,18 @@ class CustomLightningModule(LightningModule):
 
         if batch_idx == 0:
             viz2d = torch.cat([
-                        torch.cat([est_figure_ct_locked, 
-                                   est_figure_ct_random, 
-                                   out_ct_random["images_render"].mean(dim=1, keepdim=True), 
-                                   out_ct_locked["images_render"].mean(dim=1, keepdim=True), 
-                                   ], dim=-2).transpose(2, 3),
                         torch.cat([src_figure_xr_hidden, 
-                                   out_xr_hidden["images_render"].mean(dim=1, keepdim=True), 
-                                   out_ct_random["images_render"].mean(dim=1, keepdim=True), 
-                                   out_ct_locked["images_render"].mean(dim=1, keepdim=True), 
-                                #    out_xr_random["images_render"].permute(0,3,1,2).mean(dim=1, keepdim=True), 
-                                #    out_xr_locked["images_render"].permute(0,3,1,2).mean(dim=1, keepdim=True), 
-                                   ], dim=-2).transpose(2, 3)
+                                   est_figure_ct_locked, 
+                                   est_figure_ct_random, 
+                                   out["images_render"].mean(dim=1, keepdim=True), 
+                                   ], dim=-2).transpose(2, 3),
+                        # torch.cat([src_figure_xr_hidden, 
+                        #            out_xr_hidden["images_render"].mean(dim=1, keepdim=True), 
+                        #            out_ct_random["images_render"].mean(dim=1, keepdim=True), 
+                        #            out_ct_locked["images_render"].mean(dim=1, keepdim=True), 
+                        #         #    out_xr_random["images_render"].permute(0,3,1,2).mean(dim=1, keepdim=True), 
+                        #         #    out_xr_locked["images_render"].permute(0,3,1,2).mean(dim=1, keepdim=True), 
+                        #            ], dim=-2).transpose(2, 3)
                     ], dim=-2)
             grid = torchvision.utils.make_grid(viz2d, normalize=False, scale_each=False, nrow=1, padding=0)
             tensorboard = self.logger.experiment
