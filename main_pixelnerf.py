@@ -21,11 +21,6 @@ from argparse import ArgumentParser
 from typing import Optional, Sequence
 
 
-from pytorch3d.renderer import (
-    VolumeRenderer,
-    NDCMultinomialRaysampler, 
-)
-
 from pytorch3d.renderer.cameras import (
     CamerasBase,
     FoVPerspectiveCameras, 
@@ -38,7 +33,7 @@ from pytorch3d.implicitron.models.renderer.base import (
 
 from datamodule import UnpairedDataModule
 from dvr.renderer import DirectVolumeFrontToBackRenderer
-from custom.renderer import CustomInverseRenderer
+from pixelnerf.renderer import PixelNeRFFrontToBackRenderer
 
 def join_cameras_as_batch(cameras_list: Sequence[CamerasBase]) -> CamerasBase:
     """
@@ -121,7 +116,7 @@ class CustomLightningModule(LightningModule):
             max_depth=6.0
         )
 
-        self.inv_renderer = CustomInverseRenderer(
+        self.inv_renderer = PixelNeRFFrontToBackRenderer(
             render_image_width=self.shape, 
             render_image_height=self.shape, 
             chunk_size_grid=65536,
@@ -223,7 +218,7 @@ class CustomLightningModule(LightningModule):
         self.log(f'{stage}_im3d_loss', im3d_loss, on_step=(stage == 'train'), prog_bar=True, logger=True, sync_dist=True, batch_size=self.batch_size)
 
         loss = im3d_loss + im2d_loss
-        if batch_idx == 0 and stage!="train":
+        if batch_idx == 0 and stage != "train":
             viz2d = torch.cat([
                         torch.cat([est_figure_ct_locked, 
                                    est_figure_ct_random, 
