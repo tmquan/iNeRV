@@ -229,7 +229,10 @@ class CustomLightningModule(LightningModule):
                                    est_figure_ct_random, 
                                    out_ct_fwd["images_render"].mean(dim=1, keepdim=True), 
                                    out_ct_inv["images_render"].mean(dim=1, keepdim=True), 
+                                   ], dim=-2).transpose(2, 3),
+                        torch.cat([src_volume_ct[..., self.shape//2, :],
                                    src_figure_xr_hidden, 
+                                   out_xr_fwd["images_render"].mean(dim=1, keepdim=True), 
                                    out_xr_inv["images_render"].mean(dim=1, keepdim=True), 
                                    ], dim=-2).transpose(2, 3),
                     ], dim=-2)
