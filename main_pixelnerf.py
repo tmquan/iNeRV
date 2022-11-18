@@ -218,6 +218,14 @@ class CustomLightningModule(LightningModule):
         self.log(f'{stage}_im3d_loss', im3d_loss, on_step=(stage == 'train'), prog_bar=True, logger=True, sync_dist=True, batch_size=self.batch_size)
 
         loss = im3d_loss + im2d_loss
+
+        # print(
+        #     out_ct_fwd["images_render"].mean(dim=1, keepdim=True).shape, 
+        #     out_ct_inv["images_render"].mean(dim=1, keepdim=True).shape,
+        #     out_xr_fwd["images_render"].mean(dim=1, keepdim=True).shape,
+        #     out_xr_inv["images_render"].mean(dim=1, keepdim=True).shape,
+        # )
+        
         if batch_idx == 0 and stage != "train":
             viz2d = torch.cat([
                         torch.cat([est_figure_ct_locked, 

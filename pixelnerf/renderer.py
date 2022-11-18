@@ -1074,8 +1074,8 @@ class MultiPassEmissionAbsorptionFrontToBackRenderer(MultiPassEmissionAbsorption
     raymarcher_class_type: str = "EmissionAbsorptionFrontToBackRaymarcher"
     raymarcher: RaymarcherBase
 
-    n_pts_per_ray_fine_training: int = 64
-    n_pts_per_ray_fine_evaluation: int = 64
+    n_pts_per_ray_fine_training: int = 256 #64
+    n_pts_per_ray_fine_evaluation: int = 512 #64
     stratified_sampling_coarse_training: bool = True
     stratified_sampling_coarse_evaluation: bool = False
     append_coarse_samples_to_fine: bool = True
