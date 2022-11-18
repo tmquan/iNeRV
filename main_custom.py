@@ -134,13 +134,13 @@ class CustomLightningModule(LightningModule):
         image3d = batch["image3d"]
         image2d = batch["image2d"]
 
-        if stage=='train':
-            if (batch_idx % 2) == 1:
-                masked = image3d>0
-                noises = torch.rand_like(image3d) * masked.to(image3d.dtype)
-                alpha_ = torch.rand(self.batch_size, 1, 1, 1, 1, device=_device)
-                alpha_ = alpha_.expand_as(image3d)
-                image3d = alpha_ * image3d + (1 - alpha_) * noises
+        # if stage=='train':
+        #     if (batch_idx % 2) == 1:
+        #         masked = image3d>0
+        #         noises = torch.rand_like(image3d) * masked.to(image3d.dtype)
+        #         alpha_ = torch.rand(self.batch_size, 1, 1, 1, 1, device=_device)
+        #         alpha_ = alpha_.expand_as(image3d)
+        #         image3d = alpha_ * image3d + (1 - alpha_) * noises
 
         # Construct the locked camera
         dist_locked = 4.0 * torch.ones(self.batch_size, device=_device)
@@ -180,23 +180,32 @@ class CustomLightningModule(LightningModule):
         #     evaluation_mode=EvaluationMode.EVALUATION
         # )
 
-        out =  self.inv_renderer.forward(
+        out_ct =  self.inv_renderer.forward(
             image_rgb=torch.cat([
                 est_figure_ct_random.repeat(1,3,1,1), 
                 est_figure_ct_locked.repeat(1,3,1,1),
-                src_figure_xr_hidden.repeat(1,3,1,1),
             ]),
             camera=join_cameras_as_batch([
                 camera_random, 
                 camera_locked,
+            ]),
+        )
+
+        out_xr =  self.inv_renderer.forward(
+            image_rgb=torch.cat([
+                src_figure_xr_hidden.repeat(1,3,1,1), 
+            ]),
+            camera=join_cameras_as_batch([
+                camera_random, 
                 camera_locked,
             ]),
+            evaluation_mode=EvaluationMode.EVALUATION
         )
 
         # #TODO: Cycle consistent XR images
         # #TODO: Add Orthogonal Camera
         im3d_loss = 0
-        im2d_loss = out["loss_rgb_mse"] 
+        im2d_loss = out_ct["loss_rgb_mse"] 
         
         self.log(f'{stage}_im2d_loss', im2d_loss, on_step=(stage == 'train'), prog_bar=True, logger=True, sync_dist=True, batch_size=self.batch_size)
         self.log(f'{stage}_im3d_loss', im3d_loss, on_step=(stage == 'train'), prog_bar=True, logger=True, sync_dist=True, batch_size=self.batch_size)
@@ -206,10 +215,11 @@ class CustomLightningModule(LightningModule):
 
         if batch_idx == 0:
             viz2d = torch.cat([
-                        torch.cat([src_figure_xr_hidden, 
-                                   est_figure_ct_locked, 
+                        torch.cat([est_figure_ct_locked, 
                                    est_figure_ct_random, 
-                                   out["images_render"].mean(dim=1, keepdim=True), 
+                                   out_ct["images_render"].mean(dim=1, keepdim=True), 
+                                   src_figure_xr_hidden, 
+                                   out_xr["images_render"].mean(dim=1, keepdim=True), 
                                    ], dim=-2).transpose(2, 3),
                         # torch.cat([src_figure_xr_hidden, 
                         #            out_xr_hidden["images_render"].mean(dim=1, keepdim=True), 
