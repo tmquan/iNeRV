@@ -124,7 +124,7 @@ class CustomLightningModule(LightningModule):
         self.inv_renderer = CustomInverseRenderer(
             render_image_width=self.shape, 
             render_image_height=self.shape, 
-            chunk_size_grid=512,
+            chunk_size_grid=65536,
         )
 
         self.loss_smoothl1 = nn.SmoothL1Loss(reduction="mean", beta=0.02)
