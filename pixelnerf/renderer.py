@@ -230,7 +230,7 @@ class PixelNeRFFrontToBackRenderer(ImplicitronModelBase):  # pyre-ignore: 13
         add_masks = False,
         add_images = True,
         normalize_image = True,
-        image_rescale = 1.0,
+        image_rescale = 128 / 256,
     )
 
     # ---- view pooler settings
