@@ -196,11 +196,11 @@ class CustomInverseRenderer(ImplicitronModelBase):  # pyre-ignore: 13
             dict `preds` output by the `forward` function.
     """  # noqa: B950
 
-    mask_images: bool = True
-    mask_depths: bool = True
-    render_image_width: int = 400
-    render_image_height: int = 400
-    mask_threshold: float = 0.5
+    render_image_width: int = 512
+    render_image_height: int = 512
+    mask_images: bool = False
+    mask_depths: bool = False
+    mask_threshold: float = 0.001
     output_rasterized_mc: bool = False
     bg_color: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     num_passes: int = 1
@@ -213,31 +213,43 @@ class CustomInverseRenderer(ImplicitronModelBase):  # pyre-ignore: 13
     sampling_mode_evaluation: str = "full_grid"
 
     # ---- global encoder settings
-    global_encoder_class_type: Optional[str] = None
     global_encoder: Optional[GlobalEncoderBase]
-
+    global_encoder_class_type: Optional[str] = None
+    
     # ---- raysampler
-    raysampler_class_type: str = "AdaptiveRaySampler"
     raysampler: RaySamplerBase
-
+    raysampler_class_type: str = "AdaptiveRaySampler"
+    
     # ---- renderer configs
-    renderer_class_type: str = "MultiPassEmissionAbsorptionRenderer"
     renderer: BaseRenderer
-
+    renderer_class_type: str = "MultiPassEmissionAbsorptionRenderer"
+    
     # ---- image feature extractor settings
     # (This is only created if view_pooler is enabled)
-    image_feature_extractor: Optional[FeatureExtractorBase]
-    image_feature_extractor_class_type: Optional[str] = None
+    # image_feature_extractor: Optional[FeatureExtractorBase]
+    # image_feature_extractor_class_type: Optional[str] = None
+    # image_feature_extractor: Optional[FeatureExtractorBase]
+    image_feature_extractor_class_type: Optional[str] = "ResNetFeatureExtractor"
+    image_feature_extractor = ResNetFeatureExtractor(
+        name = "resnet34", 
+        add_masks = False,
+        add_images = True,
+        normalize_image = True,
+        image_rescale = 1.0,
+    )
+
     # ---- view pooler settings
+    # view_pooler_enabled: bool = True
+    # view_pooler: Optional[ViewPooler]
     view_pooler_enabled: bool = False
     view_pooler: Optional[ViewPooler]
 
     # ---- implicit function settings
-    implicit_function_class_type: str = "NeuralRadianceFieldImplicitFunction"
     # This is just a model, never constructed.
     # The actual implicit functions live in self._implicit_functions
     implicit_function: ImplicitFunctionBase
-
+    implicit_function_class_type: str = "NeuralRadianceFieldImplicitFunction"
+    
     # ----- metrics
     view_metrics: ViewMetricsBase
     view_metrics_class_type: str = "ViewMetrics"
@@ -258,24 +270,24 @@ class CustomInverseRenderer(ImplicitronModelBase):  # pyre-ignore: 13
     # ---- variables to be logged (logger automatically ignores if not computed)
     log_vars: List[str] = field(
         default_factory=lambda: [
-            "loss_rgb_psnr_fg",
+            # "loss_rgb_psnr_fg",
             "loss_rgb_psnr",
             "loss_rgb_mse",
-            "loss_rgb_huber",
-            "loss_depth_abs",
-            "loss_depth_abs_fg",
-            "loss_mask_neg_iou",
-            "loss_mask_bce",
-            "loss_mask_beta_prior",
-            "loss_eikonal",
-            "loss_density_tv",
-            "loss_depth_neg_penalty",
+            # "loss_rgb_huber",
+            # "loss_depth_abs",
+            # "loss_depth_abs_fg",
+            # "loss_mask_neg_iou",
+            # "loss_mask_bce",
+            # "loss_mask_beta_prior",
+            # "loss_eikonal",
+            # "loss_density_tv",
+            # "loss_depth_neg_penalty",
             "loss_autodecoder_norm",
             # metrics that are only logged in 2+stage renderes
-            "loss_prev_stage_rgb_mse",
-            "loss_prev_stage_rgb_psnr_fg",
-            "loss_prev_stage_rgb_psnr",
-            "loss_prev_stage_mask_bce",
+            # "loss_prev_stage_rgb_mse",
+            # "loss_prev_stage_rgb_psnr_fg",
+            # "loss_prev_stage_rgb_psnr",
+            # "loss_prev_stage_mask_bce",
             # basic metrics
             "objective",
             "epoch",
@@ -296,6 +308,7 @@ class CustomInverseRenderer(ImplicitronModelBase):  # pyre-ignore: 13
         self._implicit_functions = self._construct_implicit_functions()
 
         self.log_loss_weights()
+        self.image_feature_extractor.to(torch.device("cuda:0"))
 
     def forward(
         self,

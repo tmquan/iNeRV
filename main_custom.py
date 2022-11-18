@@ -40,6 +40,67 @@ from datamodule import UnpairedDataModule
 from dvr.renderer import DirectVolumeFrontToBackRenderer
 from custom.renderer import CustomInverseRenderer
 
+def join_cameras_as_batch(cameras_list: Sequence[CamerasBase]) -> CamerasBase:
+    """
+    Create a batched cameras object by concatenating a list of input
+    cameras objects. All the tensor attributes will be joined along
+    the batch dimension.
+    Args:
+        cameras_list: List of camera classes all of the same type and
+            on the same device. Each represents one or more cameras.
+    Returns:
+        cameras: single batched cameras object of the same
+            type as all the objects in the input list.
+    """
+    # Get the type and fields to join from the first camera in the batch
+    c0 = cameras_list[0]
+    fields = c0._FIELDS
+    shared_fields = c0._SHARED_FIELDS
+
+    if not all(isinstance(c, CamerasBase) for c in cameras_list):
+        raise ValueError("cameras in cameras_list must inherit from CamerasBase")
+
+    if not all(type(c) is type(c0) for c in cameras_list[1:]):
+        raise ValueError("All cameras must be of the same type")
+
+    if not all(c.device == c0.device for c in cameras_list[1:]):
+        raise ValueError("All cameras in the batch must be on the same device")
+
+    # Concat the fields to make a batched tensor
+    kwargs = {}
+    kwargs["device"] = c0.device
+
+    for field in fields:
+        field_not_none = [(getattr(c, field) is not None) for c in cameras_list]
+        if not any(field_not_none):
+            continue
+        if not all(field_not_none):
+            raise ValueError(f"Attribute {field} is inconsistently present")
+
+        attrs_list = [getattr(c, field) for c in cameras_list]
+
+        if field in shared_fields:
+            # Only needs to be set once
+            if not all(a == attrs_list[0] for a in attrs_list):
+                raise ValueError(f"Attribute {field} is not constant across inputs")
+
+            # e.g. "in_ndc" is set as attribute "_in_ndc" on the class
+            # but provided as "in_ndc" in the input args
+            if field.startswith("_"):
+                field = field[1:]
+
+            kwargs[field] = attrs_list[0]
+        elif isinstance(attrs_list[0], torch.Tensor):
+            # In the init, all inputs will be converted to
+            # batched tensors before set as attributes
+            # Join as a tensor along the batch dimension
+            kwargs[field] = torch.cat(attrs_list, dim=0)
+        else:
+            raise ValueError(f"Field {field} type is not supported for batching")
+
+    return c0.__class__(**kwargs)
+
+
 class CustomLightningModule(LightningModule):
     def __init__(self, hparams, **kwargs):
         super().__init__()
@@ -63,6 +124,7 @@ class CustomLightningModule(LightningModule):
         self.inv_renderer = CustomInverseRenderer(
             render_image_width=self.shape, 
             render_image_height=self.shape, 
+            chunk_size_grid=512,
         )
 
         self.loss_smoothl1 = nn.SmoothL1Loss(reduction="mean", beta=0.02)
@@ -110,20 +172,76 @@ class CustomLightningModule(LightningModule):
             opacity=src_opaque_ct, 
         )
         
+        # XR pathway
+        src_figure_xr_hidden = image2d
+
+        out_ct_random = self.inv_renderer.forward(
+            image_rgb=torch.cat([
+                est_figure_ct_random.repeat(1,3,1,1), #.permute(0,2,3,1), 
+                est_figure_ct_locked.repeat(1,3,1,1), #.permute(0,2,3,1),
+            ]),
+            camera=join_cameras_as_batch([
+                camera_random, 
+                camera_locked,
+            ]),
+        )
+
+        out_ct_locked = self.inv_renderer.forward(
+            image_rgb=torch.cat([
+                est_figure_ct_locked.repeat(1,3,1,1), #.permute(0,2,3,1),
+                est_figure_ct_random.repeat(1,3,1,1), #.permute(0,2,3,1), 
+                
+            ]),
+            camera=join_cameras_as_batch([
+                camera_locked,
+                camera_random, 
+            ]),
+        )
+
+        out_xr_hidden = self.inv_renderer.forward(
+            image_rgb=torch.cat([
+                src_figure_xr_hidden.repeat(1,3,1,1), #.permute(0,2,3,1),
+                src_figure_xr_hidden.repeat(1,3,1,1), #.permute(0,2,3,1),
+                
+            ]),
+            camera=join_cameras_as_batch([
+                camera_locked,
+                camera_locked, 
+            ]),
+        )
+
+        # #TODO: Cycle consistent XR images
         # #TODO: Add Orthogonal Camera
-        # im3d_loss = 0
-        # im2d_loss = metrics_ct_random["mse_coarse"] + metrics_ct_random["mse_fine"] \
-        #           + metrics_ct_locked["mse_coarse"] + metrics_ct_locked["mse_fine"] \
-        #           + metrics_xr_hidden["mse_coarse"] + metrics_xr_hidden["mse_fine"] \
-        #           + metrics_xr_locked["mse_coarse"] + metrics_xr_locked["mse_fine"] 
+        im3d_loss = 0
+        im2d_loss = out_ct_random["loss_rgb_mse"] \
+                  + out_ct_locked["loss_rgb_mse"] \
+                  + out_xr_hidden["loss_rgb_mse"] 
         
-        # self.log(f'{stage}_im2d_loss', im2d_loss, on_step=(stage == 'train'), prog_bar=True, logger=True, sync_dist=True, batch_size=self.batch_size)
-        # self.log(f'{stage}_im3d_loss', im3d_loss, on_step=(stage == 'train'), prog_bar=True, logger=True, sync_dist=True, batch_size=self.batch_size)
+        self.log(f'{stage}_im2d_loss', im2d_loss, on_step=(stage == 'train'), prog_bar=True, logger=True, sync_dist=True, batch_size=self.batch_size)
+        self.log(f'{stage}_im3d_loss', im3d_loss, on_step=(stage == 'train'), prog_bar=True, logger=True, sync_dist=True, batch_size=self.batch_size)
 
-        # loss = im3d_loss + im2d_loss
-
-        loss = 0.0
+        loss = im3d_loss + im2d_loss
         info = {f'loss': loss}
+
+        if batch_idx == 0:
+            viz2d = torch.cat([
+                        torch.cat([est_figure_ct_locked, 
+                                   est_figure_ct_random, 
+                                   out_ct_random["images_render"].mean(dim=1, keepdim=True), 
+                                   out_ct_locked["images_render"].mean(dim=1, keepdim=True), 
+                                   ], dim=-2).transpose(2, 3),
+                        torch.cat([src_figure_xr_hidden, 
+                                   out_xr_hidden["images_render"].mean(dim=1, keepdim=True), 
+                                   out_ct_random["images_render"].mean(dim=1, keepdim=True), 
+                                   out_ct_locked["images_render"].mean(dim=1, keepdim=True), 
+                                #    out_xr_random["images_render"].permute(0,3,1,2).mean(dim=1, keepdim=True), 
+                                #    out_xr_locked["images_render"].permute(0,3,1,2).mean(dim=1, keepdim=True), 
+                                   ], dim=-2).transpose(2, 3)
+                    ], dim=-2)
+            grid = torchvision.utils.make_grid(viz2d, normalize=False, scale_each=False, nrow=1, padding=0)
+            tensorboard = self.logger.experiment
+            tensorboard.add_image(f'{stage}_samples', grid.clamp(0., 1.), self.current_epoch*self.batch_size + batch_idx)
+
         return info
 
     def training_step(self, batch, batch_idx):
