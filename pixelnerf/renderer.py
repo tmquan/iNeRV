@@ -251,25 +251,7 @@ class PixelNeRFFrontToBackRenderer(ImplicitronModelBase):  # pyre-ignore: 13
     # The actual implicit functions live in self._implicit_functions
     implicit_function_class_type: str = "NeuralRadianceFieldImplicitFunction"
     implicit_function: ImplicitFunctionBase
-    # (
-    #     n_harmonic_functions_xyz = 20,
-    #     n_harmonic_functions_dir = 20,
-    #     n_hidden_neurons_dir = 512,
-    # )
-    # n_harmonic_functions_xyz: int = 20
-    # n_harmonic_functions_dir: int = 20
-    # n_hidden_neurons_dir: int = 512
 
-    # implicit_function = NeuralRadianceFieldImplicitFunction(
-    #     n_harmonic_functions_xyz = 20, #: int = 10
-    #     n_harmonic_functions_dir = 20, #: int = 4
-    #     n_hidden_neurons_dir = 512, #: int = 128
-    #     latent_dim = 0, #: int = 0
-    #     input_xyz = True, #: bool = True
-    #     xyz_ray_dir_in_camera_coords = False, #: bool = False
-    #     color_dim = 1, #: int = 3
-    # )
-    
     # ----- metrics
     view_metrics: ViewMetricsBase
     view_metrics_class_type: str = "ViewMetrics"
@@ -935,7 +917,7 @@ class NeuralRadianceFieldImplicitFunction(NeuralRadianceFieldBase):
     append_xyz: Tuple[int, ...] = (5,)
     latent_dim: int = 0
     input_xyz: bool = True
-    xyz_ray_dir_in_camera_coords: bool = True
+    xyz_ray_dir_in_camera_coords: bool = False
     color_dim: int = 3
 
     def _construct_xyz_encoder(self, input_dim: int):
