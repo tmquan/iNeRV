@@ -910,9 +910,9 @@ def _chunk_generator(
 @registry.register
 class NeuralRadianceFieldImplicitFunction(NeuralRadianceFieldBase):
     n_harmonic_functions_xyz: int = 40
-    n_harmonic_functions_dir: int = 40
-    n_hidden_neurons_xyz: int = 512
-    n_hidden_neurons_dir: int = 512
+    n_harmonic_functions_dir: int = 16
+    n_hidden_neurons_xyz: int = 256
+    n_hidden_neurons_dir: int = 256
     n_layers_xyz: int = 12
     append_xyz: Tuple[int, ...] = (5,)
     latent_dim: int = 0
