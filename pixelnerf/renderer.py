@@ -226,10 +226,10 @@ class PixelNeRFFrontToBackRenderer(ImplicitronModelBase):  # pyre-ignore: 13
     # image_feature_extractor: Optional[FeatureExtractorBase]
     image_feature_extractor_class_type: Optional[str] = "ResNetFeatureExtractor"
     image_feature_extractor = ResNetFeatureExtractor(
-        name = "resnet101", 
+        name = "resnet152", 
         add_masks = False,
-        add_images = True,
-        normalize_image = True,
+        add_images = False,
+        normalize_image = False,
         image_rescale = 128 / 256,
     )
 
@@ -242,8 +242,26 @@ class PixelNeRFFrontToBackRenderer(ImplicitronModelBase):  # pyre-ignore: 13
     # ---- implicit function settings
     # This is just a model, never constructed.
     # The actual implicit functions live in self._implicit_functions
-    implicit_function: ImplicitFunctionBase
     implicit_function_class_type: str = "NeuralRadianceFieldImplicitFunction"
+    implicit_function: ImplicitFunctionBase
+    # (
+    #     n_harmonic_functions_xyz = 20,
+    #     n_harmonic_functions_dir = 20,
+    #     n_hidden_neurons_dir = 512,
+    # )
+    # n_harmonic_functions_xyz: int = 20
+    # n_harmonic_functions_dir: int = 20
+    # n_hidden_neurons_dir: int = 512
+
+    # implicit_function = NeuralRadianceFieldImplicitFunction(
+    #     n_harmonic_functions_xyz = 20, #: int = 10
+    #     n_harmonic_functions_dir = 20, #: int = 4
+    #     n_hidden_neurons_dir = 512, #: int = 128
+    #     latent_dim = 0, #: int = 0
+    #     input_xyz = True, #: bool = True
+    #     xyz_ray_dir_in_camera_coords = False, #: bool = False
+    #     color_dim = 1, #: int = 3
+    # )
     
     # ----- metrics
     view_metrics: ViewMetricsBase
@@ -739,7 +757,17 @@ class PixelNeRFFrontToBackRenderer(ImplicitronModelBase):  # pyre-ignore: 13
                     "The chosen implicit function requires view pooling without aggregation."
                 )
         config_name = f"implicit_function_{self.implicit_function_class_type}_args"
+        print(config_name)
+        print(self)
         config = getattr(self, config_name, None)
+        
+        config.update({
+            "n_harmonic_functions_xyz": 20,
+            "n_harmonic_functions_dir": 20,
+            "n_hidden_neurons_dir": 1024
+        })
+        
+        print(config)
         if config is None:
             raise ValueError(f"{config_name} not present")
         implicit_functions_list = [
