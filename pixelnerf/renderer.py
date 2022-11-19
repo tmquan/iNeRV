@@ -47,7 +47,14 @@ from pytorch3d.implicitron.models.renderer.base import BaseRenderer, EvaluationM
 from pytorch3d.implicitron.models.renderer.raymarcher import RaymarcherBase, EmissionAbsorptionRaymarcher
 from pytorch3d.implicitron.models.renderer.multipass_ea import MultiPassEmissionAbsorptionRenderer
 
-from pytorch3d.implicitron.models.implicit_function.neural_radiance_field import NeuralRadianceFieldImplicitFunction
+from pytorch3d.implicitron.models.implicit_function.neural_radiance_field import NeuralRadianceFieldBase
+from pytorch3d.implicitron.models.implicit_function.base import ImplicitFunctionBase
+
+from pytorch3d.implicitron.models.implicit_function.decoding_functions import (
+    MLPWithInputSkips,
+)
+# from pytorch3d.implicitron.models.implicit_function.utils import create_embeddings_for_implicit_function
+
 
 logger = logging.getLogger(__name__)
 _TTensor = torch.Tensor
@@ -757,15 +764,15 @@ class PixelNeRFFrontToBackRenderer(ImplicitronModelBase):  # pyre-ignore: 13
                     "The chosen implicit function requires view pooling without aggregation."
                 )
         config_name = f"implicit_function_{self.implicit_function_class_type}_args"
-        print(config_name)
-        print(self)
         config = getattr(self, config_name, None)
+        # print(config_name)
+        # print(self)
         
-        config.update({
-            "n_harmonic_functions_xyz": 20,
-            "n_harmonic_functions_dir": 20,
-            "n_hidden_neurons_dir": 1024
-        })
+        # config.update({
+        #     "n_harmonic_functions_xyz": 20,
+        #     "n_harmonic_functions_dir": 20,
+        #     "n_hidden_neurons_dir": 1024
+        # })
         
         print(config)
         if config is None:
@@ -917,6 +924,30 @@ def _chunk_generator(
         for k, v in chunked_inputs.items():
             extra_args[k] = v.flatten(2)[:, :, start_idx:end_idx]
         yield [ray_bundle_chunk, *args], extra_args
+
+@registry.register
+class NeuralRadianceFieldImplicitFunction(NeuralRadianceFieldBase):
+    n_harmonic_functions_xyz: int = 40
+    n_harmonic_functions_dir: int = 40
+    n_hidden_neurons_xyz: int = 512
+    n_hidden_neurons_dir: int = 512
+    n_layers_xyz: int = 12
+    append_xyz: Tuple[int, ...] = (5,)
+    latent_dim: int = 0
+    input_xyz: bool = True
+    xyz_ray_dir_in_camera_coords: bool = True
+    color_dim: int = 3
+
+    def _construct_xyz_encoder(self, input_dim: int):
+        expand_args_fields(MLPWithInputSkips)
+        return MLPWithInputSkips(
+            self.n_layers_xyz,
+            input_dim,
+            self.n_hidden_neurons_xyz,
+            input_dim,
+            self.n_hidden_neurons_xyz,
+            input_skips=self.append_xyz,
+        )
 
 
 @registry.register
